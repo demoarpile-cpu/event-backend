@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Event Ticket Platform Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "npx prisma generate && node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:push": "npx prisma db push",
+    "db:generate": "npx prisma generate",
+    "postinstall": "npx prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "@sendgrid/mail": "^8.1.6",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.12.0",
+    "prisma": "^6.4.1",
+    "puppeteer": "^24.40.0",
+    "qrcode": "^1.5.4",
+    "stripe": "^20.4.1"
+  }
+}
