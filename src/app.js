@@ -9,11 +9,11 @@ app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         
-        const isAllowed = origin.includes('localhost') || 
-                          origin.includes('127.0.0.1') || 
-                          origin.includes('ngrok') || 
-                          origin.includes('netlify.app') ||
-                          origin === 'http://event.kiaansoftware.com/';
+        const isAllowed = origin.includes('localhost') ||
+                          origin.includes('127.0.0.1') ||
+                          origin.includes('ngrok') ||
+                          origin === 'http://event.kiaansoftware.com' ||
+                          origin === 'https://event.kiaansoftware.com';
         
         if (isAllowed) {
             callback(null, true);
