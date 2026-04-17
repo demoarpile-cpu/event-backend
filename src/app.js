@@ -13,7 +13,7 @@ app.use(cors({
                           origin.includes('127.0.0.1') || 
                           origin.includes('ngrok') || 
                           origin.includes('netlify.app') ||
-                          origin === 'https://event-ticket-platform1.netlify.app';
+                          origin === 'http://event.kiaansoftware.com/';
         
         if (isAllowed) {
             callback(null, true);
