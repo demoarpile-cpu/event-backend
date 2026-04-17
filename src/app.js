@@ -4,42 +4,36 @@ const path = require('path');
 
 const app = express();
 
-// Middleware
-const allowedOrigins = [
-  'http://event.kiaansoftware.com',
-  'https://event.kiaansoftware.com',
-  'http://localhost:5173',
-  'http://localhost:3000'
-];
+// Middlewares
+const normalizedFrontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+const allowedOrigins = new Set([
+    'http://event.kiaansoftware.com',
+    'https://event.kiaansoftware.com',
+    normalizedFrontendUrl
+].filter(Boolean));
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
 
-    if (
-      allowedOrigins.includes(origin) ||
-      origin.endsWith('.ngrok-free.app')
-    ) {
-      return callback(null, true);
-    }
+        const normalizedOrigin = origin.replace(/\/$/, '');
+        const isAllowed = normalizedOrigin.includes('localhost') ||
+                          normalizedOrigin.includes('127.0.0.1') ||
+                          normalizedOrigin.includes('ngrok') ||
+                          allowedOrigins.has(normalizedOrigin);
 
-    console.log('CORS Blocked:', origin);
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'ngrok-skip-browser-warning'
-  ]
-}));
+        if (isAllowed) return callback(null, true);
 
-// ✅ FIXED preflight
-app.options('*', (req, res) => {
-    res.sendStatus(204);
-});
+        console.warn(`[CORS] Rejected origin: ${origin}`);
+        return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
+};
 
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 // Stripe Webhook (MUST be before express.json() for raw body signature check)
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), (req, res) => {
     require('./modules/payments/stripe.webhook').handleWebhook(req, res);
