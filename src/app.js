@@ -4,7 +4,7 @@ const path = require('path');
 
 const app = express();
 
-// Middlewares
+// Middleware
 const allowedOrigins = [
   'http://event.kiaansoftware.com',
   'https://event.kiaansoftware.com',
