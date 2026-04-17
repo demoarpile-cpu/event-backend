@@ -8,24 +8,31 @@ const app = express();
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        
-        const isAllowed = origin.includes('localhost') ||
-                          origin.includes('127.0.0.1') ||
-                          origin.includes('ngrok') ||
-                          origin === 'http://event.kiaansoftware.com' ||
-                          origin === 'https://event.kiaansoftware.com';
-        
-        if (isAllowed) {
-            callback(null, true);
-        } else {
-            console.warn(`[CORS] Rejected origin: ${origin}`);
-            callback(null, false);
+
+        if (
+            allowedOrigins.includes(origin) ||
+            origin.endsWith('.ngrok-free.app')
+        ) {
+            return callback(null, true);
         }
+
+        console.error(`[CORS BLOCKED] ${origin}`);
+        return callback(null, false); // ✅ FIXED
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning']
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'ngrok-skip-browser-warning'
+    ]
 }));
+
+// ✅ FIXED preflight
+app.options('*', (req, res) => {
+    res.sendStatus(204);
+});
+
 // Stripe Webhook (MUST be before express.json() for raw body signature check)
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), (req, res) => {
     require('./modules/payments/stripe.webhook').handleWebhook(req, res);
