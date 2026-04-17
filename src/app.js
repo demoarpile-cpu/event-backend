@@ -5,27 +5,34 @@ const path = require('path');
 const app = express();
 
 // Middlewares
+const allowedOrigins = [
+  'http://event.kiaansoftware.com',
+  'https://event.kiaansoftware.com',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
 
-        if (
-            allowedOrigins.includes(origin) ||
-            origin.endsWith('.ngrok-free.app')
-        ) {
-            return callback(null, true);
-        }
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.ngrok-free.app')
+    ) {
+      return callback(null, true);
+    }
 
-        console.error(`[CORS BLOCKED] ${origin}`);
-        return callback(null, false); // ✅ FIXED
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'ngrok-skip-browser-warning'
-    ]
+    console.log('CORS Blocked:', origin);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'ngrok-skip-browser-warning'
+  ]
 }));
 
 // ✅ FIXED preflight
