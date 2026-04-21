@@ -150,21 +150,21 @@ router.post('/register', async (req, res) => {
                 password: hashedPassword,
                 mobile,
                 role: 'ORGANIZER',
-                organizerStatus: 'PENDING'
+                organizerStatus: 'APPROVED'
             }
         });
 
         console.log('User created successfully:', user.id);
 
         // Notify Admin of new registration (Non-blocking Fire-and-Forget)
-        emailService.sendAdminNewOrganizerAlert({ 
-            name: user.name, 
-            email: user.email 
+        emailService.sendAdminNewOrganizerAlert({
+            name: user.name,
+            email: user.email
         });
 
         res.status(202).json({
-            pending: true,
-            message: 'Your organizer account is pending admin approval. You will be able to log in after an administrator approves your request.'
+            pending: false,
+            message: 'Your organizer account has been created successfully. You can now log in and start creating events.'
         });
     } catch (error) {
         console.error('Registration error details:', {
@@ -191,7 +191,7 @@ const maskValue = (val) => {
  * @desc  Update user profile (name, email, business/bank details)
  */
 router.put('/profile', requireAuth, requireApprovedOrganizer, async (req, res) => {
-    const { 
+    const {
         name, email, mobile,
         businessName, abn, businessAddress,
         bankAccountName, bsb, accountNumber,
@@ -202,7 +202,7 @@ router.put('/profile', requireAuth, requireApprovedOrganizer, async (req, res) =
     try {
         await prisma.$transaction(async (tx) => {
             const user = await tx.user.findUnique({ where: { id: userId } });
-            
+
             // 1. Concurrency Check
             if (currentPayoutDetailsUpdatedAt && user.payoutDetailsUpdatedAt) {
                 const incomingDate = new Date(currentPayoutDetailsUpdatedAt).getTime();
@@ -279,8 +279,8 @@ router.put('/profile', requireAuth, requireApprovedOrganizer, async (req, res) =
         // 4. Fetch and Return (Masked)
         const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: { 
-                id: true, name: true, email: true, role: true, status: true, 
+            select: {
+                id: true, name: true, email: true, role: true, status: true,
                 mobile: true,
                 businessName: true, abn: true, businessAddress: true, bankAccountName: true,
                 bsb: true, accountNumber: true, payoutDetailsUpdatedAt: true,
@@ -288,12 +288,12 @@ router.put('/profile', requireAuth, requireApprovedOrganizer, async (req, res) =
             }
         });
 
-        res.json({ 
+        res.json({
             user: {
                 ...user,
                 bsb: user.bsb ? "XXXXXX" : null,
                 accountNumber: maskValue(user.accountNumber)
-            } 
+            }
         });
 
     } catch (error) {

@@ -125,9 +125,8 @@ router.get('/events', ...organizerAuthStack, async (req, res) => {
 router.get('/events/:id', ...organizerAuthStack, async (req, res) => {
     const { id } = req.params;
     try {
-        const settings = await prisma.platformsettings.findFirst() || await prisma.platformsettings.create({ data: {} });
-        const feeRate = Number(settings.platformFeeRate) || 0;
-        const fixedFee = Number(settings.platformFeeFixed) || 0;
+        // Removed current settings lookup to prevent retrospective fee changes in dashboard
+
 
         const event = await prisma.event.findUnique({
             where: { id: parseInt(id) },
@@ -152,16 +151,19 @@ router.get('/events/:id', ...organizerAuthStack, async (req, res) => {
         }
 
         const totalFees = event.purchaseorder.reduce((sum, order) => {
-            const qty = Number(order.quantity) || 0;
+            // Check for snapshot first
+            if (order.platformFee !== null && order.platformFee !== undefined) return sum + Number(order.platformFee);
+            
+            // Fallback for legacy orders (prevents retrospective changes from Admin settings)
+            const rate = event.serviceFeeRate || 0.02;
+            const fixed = 0.50;
             const amount = Number(order.amount) || 0;
-            const storedFee = Number(order.platformFee) || 0;
-            const effectiveFee = event.serviceFeeType === 'ORGANIZER'
-                ? Number(((amount * feeRate) + (fixedFee * qty)).toFixed(2))
-                : storedFee;
-            return sum + effectiveFee;
+            const qty = Number(order.quantity) || 0;
+            const legacyFee = Number(((amount * rate) + (fixed * qty)).toFixed(2));
+            return sum + legacyFee;
         }, 0);
-        const buyerFees = event.serviceFeeType === 'BUYER' ? totalFees : 0;
         const organiserFees = event.serviceFeeType === 'ORGANIZER' ? totalFees : 0;
+        const buyerFees = event.serviceFeeType === 'BUYER' ? totalFees : 0;
 
         // Map response for frontend
         const mappedEvent = {
@@ -173,7 +175,7 @@ router.get('/events/:id', ...organizerAuthStack, async (req, res) => {
             schedule: event.eventschedule,
             ticketReleases: event.ticketrelease,
             feeSummary: {
-                totalFees,
+                totalFees: organiserFees, // Only show what the organiser actually pays
                 buyerFees,
                 organiserFees,
                 feeType: event.serviceFeeType
@@ -524,25 +526,20 @@ router.get('/reports', ...organizerAuthStack, async (req, res) => {
             const n = Number(val);
             return Number.isFinite(n) ? n : 0;
         };
-        const settings = await prisma.platformsettings.findFirst() || await prisma.platformsettings.create({ data: {} });
-        const feeRate = toNumber(settings.platformFeeRate);
-        const fixedFee = toNumber(settings.platformFeeFixed);
+        // Removed current settings lookup to prevent retrospective fee changes in reports
+
         const resolveOrderAmount = (order) => toNumber(order.amount);
-        const resolveStoredOrderFee = (order) => {
+        const resolveOrderFee = (order, event) => {
             if (order.platformFee !== null && order.platformFee !== undefined) return toNumber(order.platformFee);
             if (order.platformFeeCents !== null && order.platformFeeCents !== undefined) return toNumber(order.platformFeeCents) / 100;
-            return 0;
-        };
-        const resolveOrderFee = (order, feeType) => {
-            // For ORGANIZER fee type, order.amount stores discounted subtotal.
-            // Recompute fee from amount to avoid legacy stored-fee drift.
-            if (feeType === 'ORGANIZER') {
-                const amount = resolveOrderAmount(order);
-                const qty = toNumber(order.quantity);
-                if (amount <= 0) return 0;
-                return Number(((amount * feeRate) + (fixedFee * qty)).toFixed(2));
-            }
-            return resolveStoredOrderFee(order);
+            
+            // LEGACY FALLBACK: For very old orders without a snapshot, use event-level rate or a stable 2% default.
+            // This prevents the global Admin settings from retrospectively changing old dashboard data.
+            const rate = event?.serviceFeeRate || 0.02;
+            const fixed = 0.50; 
+            const amount = resolveOrderAmount(order);
+            const qty = toNumber(order.quantity);
+            return Number(((amount * rate) + (fixed * qty)).toFixed(2));
         };
         const resolveOrganizerReceives = (gross, fee, feeType) => {
             // Business rule:
@@ -579,7 +576,7 @@ router.get('/reports', ...organizerAuthStack, async (req, res) => {
         const stats = events.reduce((acc, event) => {
             const eventTotalGross = event.purchaseorder.reduce((sum, order) => sum + resolveOrderAmount(order), 0);
             const eventTotalFees = event.purchaseorder.reduce((sum, order) => {
-                return sum + resolveOrderFee(order, event.serviceFeeType);
+                return sum + resolveOrderFee(order, event);
             }, 0);
             const eventOrganizerPaidFees = event.serviceFeeType === 'ORGANIZER' ? eventTotalFees : 0;
             const successfulOrderTickets = event.purchaseorder.reduce((sum, order) => sum + resolveOrderQuantity(order), 0);
@@ -610,7 +607,8 @@ router.get('/reports', ...organizerAuthStack, async (req, res) => {
                 platformFeeCents: true,
                 event: {
                     select: {
-                        serviceFeeType: true
+                        serviceFeeType: true,
+                        serviceFeeRate: true
                     }
                 }
             }
@@ -618,7 +616,7 @@ router.get('/reports', ...organizerAuthStack, async (req, res) => {
 
         const revenueThisMonth = ordersThisMonth.reduce((sum, order) => {
             const gross = resolveOrderAmount(order);
-            const fee = resolveOrderFee(order, order.event?.serviceFeeType);
+            const fee = resolveOrderFee(order, order.event);
             return sum + resolveOrganizerReceives(gross, fee, order.event?.serviceFeeType);
         }, 0);
 
@@ -642,7 +640,7 @@ router.get('/reports', ...organizerAuthStack, async (req, res) => {
             events: events.map(e => {
                 const eventTotalGross = e.purchaseorder.reduce((sum, order) => sum + resolveOrderAmount(order), 0);
                 const eventTotalFees = e.purchaseorder.reduce((sum, order) => {
-                    return sum + resolveOrderFee(order, e.serviceFeeType);
+                    return sum + resolveOrderFee(order, e);
                 }, 0);
                 const organizerPaidFee = e.serviceFeeType === 'ORGANIZER' ? eventTotalFees : 0;
                 const successfulOrderTickets = e.purchaseorder.reduce((sum, order) => sum + resolveOrderQuantity(order), 0);

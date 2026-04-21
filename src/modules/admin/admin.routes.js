@@ -213,7 +213,10 @@ router.get('/dashboard', requireAuth, requireRole(['ADMIN']), async (req, res) =
         const resolveOrderFee = (order) => {
             if (order.platformFee !== null && order.platformFee !== undefined) return Number(order.platformFee) || 0;
             if (order.platformFeeCents !== null && order.platformFeeCents !== undefined) return (Number(order.platformFeeCents) || 0) / 100;
-            return 0;
+            
+            // Legacy fallback for system global stats
+            const amount = Number(order.amount) || 0;
+            return Number((amount * 0.02).toFixed(2));
         };
 
         const totalRevenue = settledOrders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
@@ -276,7 +279,10 @@ router.get('/stats', requireAuth, requireRole(['ADMIN']), async (req, res) => {
         const resolveOrderFee = (order) => {
             if (order.platformFee !== null && order.platformFee !== undefined) return Number(order.platformFee) || 0;
             if (order.platformFeeCents !== null && order.platformFeeCents !== undefined) return (Number(order.platformFeeCents) || 0) / 100;
-            return 0;
+            
+            // Legacy fallback for system global stats
+            const amount = Number(order.amount) || 0;
+            return Number((amount * 0.02).toFixed(2));
         };
 
         const totalRevenue = settledOrders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
@@ -571,9 +577,8 @@ router.patch('/settings', requireAuth, requireRole(['ADMIN']), async (req, res) 
  */
 router.get('/organizers', requireAuth, requireRole(['ADMIN']), async (req, res) => {
     try {
-        const settings = await prisma.platformsettings.findFirst() || await prisma.platformsettings.create({ data: {} });
-        const feeRate = Number(settings.platformFeeRate) || 0;
-        const fixedFee = Number(settings.platformFeeFixed) || 0;
+        // Removed global settings lookup to ensure historical stability in payouts
+
 
         const toCents = (order) => {
             if (order.amountCents !== null && order.amountCents !== undefined) return Number(order.amountCents) || 0;
@@ -586,14 +591,18 @@ router.get('/organizers', requireAuth, requireRole(['ADMIN']), async (req, res) 
             if (order.platformFee !== null && order.platformFee !== undefined) return Math.round((Number(order.platformFee) || 0) * 100);
             return 0;
         };
-        const resolveEffectiveFeeCents = (order, feeType) => {
-            if (feeType === 'ORGANIZER') {
-                const amount = toCents(order) / 100;
-                const qty = Number(order.quantity) || 0;
-                if (amount <= 0 || qty <= 0) return 0;
-                return Math.round((((amount * feeRate) + (fixedFee * qty)) * 100));
-            }
-            return resolveStoredFeeCents(order);
+        const resolveEffectiveFeeCents = (order, ev) => {
+            // Priority 1: Use Snapshot
+            if (order.platformFeeCents !== null && order.platformFeeCents !== undefined) return Number(order.platformFeeCents) || 0;
+            if (order.platformFee !== null && order.platformFee !== undefined) return Math.round((Number(order.platformFee) || 0) * 100);
+
+            // Legacy Fallback (prevents retrospective changes from Admin settings)
+            const rate = ev?.serviceFeeRate || 0.02;
+            const fixed = 0.50; 
+            const amountCents = toCents(order);
+            const qty = Number(order.quantity) || 0;
+            if (amountCents <= 0) return 0;
+            return Math.round((((amountCents / 100) * rate) + (fixed * qty)) * 100);
         };
 
         const organizers = await prisma.user.findMany({
@@ -641,7 +650,7 @@ router.get('/organizers', requireAuth, requireRole(['ADMIN']), async (req, res) 
             org.event_event_organizerIdTouser.forEach(ev => {
                 ev.purchaseorder.forEach(po => {
                     const settledAmountCents = toCents(po);
-                    const feeCents = resolveEffectiveFeeCents(po, ev.serviceFeeType);
+                    const feeCents = resolveEffectiveFeeCents(po, ev);
                     const refundCents = Math.round((po.refundedAmount || 0) * 100);
                     const netAfterRefundCents = Math.max(0, settledAmountCents - refundCents);
 

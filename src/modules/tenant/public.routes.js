@@ -48,7 +48,6 @@ router.get('/events', async (req, res) => {
                     let status = 'INACTIVE';
                     if (tr.isActive) {
                         if (tr.sold >= tr.quantity) status = 'SOLD_OUT';
-                        else if (tr.releaseDate && now < new Date(tr.releaseDate)) status = 'COMING_SOON';
                         else if (tr.endDate && now > new Date(tr.endDate)) status = 'EXPIRED';
                         else status = 'ACTIVE';
                     }
@@ -168,7 +167,6 @@ router.get('/events/:id', async (req, res) => {
             let status = 'INACTIVE';
             if (tr.isActive) {
                 if (tr.sold >= tr.quantity) status = 'SOLD_OUT';
-                else if (tr.releaseDate && now < new Date(tr.releaseDate)) status = 'COMING_SOON';
                 else if (tr.endDate && now > new Date(tr.endDate)) status = 'EXPIRED';
                 else status = 'ACTIVE';
             }
@@ -606,11 +604,11 @@ router.get('/legal/:key', async (req, res) => {
         const setting = await prisma.settings.findUnique({
             where: { key }
         });
-        
+
         if (!setting) {
             return res.status(404).json({ error: 'Legal content not found' });
         }
-        
+
         res.json(setting);
     } catch (error) {
         console.error('Error fetching legal content:', error);
@@ -629,7 +627,7 @@ router.get('/faqs', async (req, res) => {
                 id: 'asc'
             }
         });
-        
+
         // Group by category for easier frontend handling
         const grouped = faqs.reduce((acc, faq) => {
             const existingCat = acc.find(cat => cat.category === faq.category);
@@ -643,7 +641,7 @@ router.get('/faqs', async (req, res) => {
             }
             return acc;
         }, []);
-        
+
         res.json(grouped);
     } catch (error) {
         console.error('Error fetching public FAQs:', error);

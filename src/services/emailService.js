@@ -32,14 +32,14 @@ async function getBrowser() {
     if (!browserInstance || !browserInstance.isConnected()) {
         try {
             if (browserInstance) {
-                await browserInstance.close().catch(() => {});
+                await browserInstance.close().catch(() => { });
             }
             browserInstance = await puppeteer.launch({
                 headless: 'new',
                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
             });
             console.log('[BROWSER] Singleton browser instance launched.');
-            
+
             browserInstance.on('disconnected', () => {
                 console.log('[BROWSER] Browser disconnected.');
                 browserInstance = null;
@@ -219,7 +219,7 @@ async function generateTicketPDF(eventData, attendeeData, orderData, qrCodes) {
         console.error(`[PDF_ERROR] orderId=${orderData.id} error=${error.message}`);
         return null;
     } finally {
-        if (page) await page.close().catch(() => {});
+        if (page) await page.close().catch(() => { });
     }
 }
 
@@ -388,7 +388,7 @@ function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, lo
         ? `${FRONTEND_URL}/order/${orderId}/tickets`
         : `${FRONTEND_URL}/order-tickets`;
 
-    const formattedDate = (eventDate instanceof Date) 
+    const formattedDate = (eventDate instanceof Date)
         ? eventDate.toLocaleString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
         : (eventDate || 'Coming Soon');
 
@@ -453,8 +453,8 @@ function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, lo
             ${qrSections}
             <p style="margin: 10px 0 0; color: #94A3B8; font-size: 13px; font-weight: 500;">
                 ${hasPdfAttachment
-                    ? 'A consolidated PDF with all tickets is attached to this email.'
-                    : 'PDF generation is in progress. You can always download all tickets using the button below.'}
+                ? 'A consolidated PDF with all tickets is attached to this email.'
+                : 'PDF generation is in progress. You can always download all tickets using the button below.'}
             </p>
         </div>
         ` : ''}
@@ -686,7 +686,7 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
             `;
             await withTimeout(page.setContent(fallbackHtml, { waitUntil: 'load' }), 8000, 'PDF_FALLBACK_CONTENT_SET');
             pdfBuffer = await withTimeout(page.pdf({ format: 'A4', printBackground: true }), 10000, 'PDF_FALLBACK_GENERATION');
-            await page.close().catch(() => {});
+            await page.close().catch(() => { });
             console.log(`[PDF_FALLBACK_SUCCESS] orderId=${orderData.id}`);
         } catch (fallbackError) {
             console.error(`[PDF_FALLBACK_ERROR] orderId=${orderData.id} error=${fallbackError.message}`);
@@ -723,7 +723,7 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
     });
 
     let attachments = [];
-    
+
     // Add all QR codes as inline attachments
     qrCodes.forEach((qr, index) => {
         if (qr) {
@@ -760,7 +760,7 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
         html: htmlTemplate,
         attachments: attachments
     };
- 
+
     await sendEmailRaw(msg, 'ticket_confirmation', orderData.id);
 }
 
