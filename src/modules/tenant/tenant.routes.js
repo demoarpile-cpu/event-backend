@@ -62,7 +62,7 @@ router.post('/purchase', async (req, res) => {
                 });
 
                 if (!release || release.eventId !== eventIdInt) throw new Error('Invalid ticket selection.');
-                
+
                 // STRICT PRODUCTION CHECK
                 if (!release.isActive) {
                     throw new Error(`The "${release.name}" release is currently deactivated.`);
@@ -76,15 +76,15 @@ router.post('/purchase', async (req, res) => {
                 if (release.endDate && now > new Date(release.endDate)) {
                     throw new Error(`The "${release.name}" release has expired and is no longer available.`);
                 }
-                
+
                 if (release.sold >= release.quantity) {
                     throw new Error(`The "${release.name}" release is sold out.`);
                 }
-                
+
                 // ATOMIC GUARD: Update only if space is available
                 const updateRelease = await tx.ticketrelease.updateMany({
-                    where: { 
-                        id: ticketReleaseIdInt, 
+                    where: {
+                        id: ticketReleaseIdInt,
                         sold: { lte: release.quantity - quantity },
                         isActive: true // Double check active status at exact moment of update
                     },
@@ -101,8 +101,8 @@ router.post('/purchase', async (req, res) => {
 
             // ATOMIC GUARD (Global Event Capacity)
             const updateEvent = await tx.event.updateMany({
-                where: { 
-                    id: eventIdInt, 
+                where: {
+                    id: eventIdInt,
                     ticketsSold: { lte: event.totalTickets - quantity },
                     status: 'APPROVED'
                 },
@@ -128,8 +128,8 @@ router.post('/purchase', async (req, res) => {
 
                 if (promo && (!promo.expiresAt || new Date(promo.expiresAt) > new Date())) {
                     // Calculate Discount
-                    discountAmount = promo.discountType === 'PERCENTAGE' 
-                        ? (subtotal * promo.discountValue) / 100 
+                    discountAmount = promo.discountType === 'PERCENTAGE'
+                        ? (subtotal * promo.discountValue) / 100
                         : promo.discountValue;
 
                     await tx.promocode.update({
@@ -148,9 +148,9 @@ router.post('/purchase', async (req, res) => {
             const clampedDiscount = Math.max(0, Math.min(discountAmount, subtotal));
             const discountedSubtotal = Math.max(0, subtotal - clampedDiscount);
             const fee = (discountedSubtotal <= 0)
-                ? 0 
+                ? 0
                 : parseFloat(((discountedSubtotal * effectiveFeeRate) + (globalFeeFixed * quantity)).toFixed(2));
-            
+
             const finalTotal = Math.max(0, discountedSubtotal + (buyerPaysFee ? fee : 0));
             const finalTotalCents = Math.round(finalTotal * 100);
 
@@ -201,9 +201,9 @@ router.post('/purchase', async (req, res) => {
                     where: { eventId: eventIdInt }
                 });
 
-                const otherActiveAvailable = allReleases.find(r => 
-                    r.isActive && 
-                    r.id !== ticketReleaseIdInt && 
+                const otherActiveAvailable = allReleases.find(r =>
+                    r.isActive &&
+                    r.id !== ticketReleaseIdInt &&
                     r.sold < r.quantity
                 );
 
@@ -223,21 +223,21 @@ router.post('/purchase', async (req, res) => {
                             where: { id: nextRelease.id },
                             data: { isActive: true }
                         });
-                        
+
                         // Deactivate the current one for strict single-tier enforcement
                         await tx.ticketrelease.update({
                             where: { id: ticketReleaseIdInt },
                             data: { isActive: false }
                         });
-                        
+
                         console.log(`Auto-Progressed: ${event.title} -> Activated ${nextRelease.name}`);
                     }
                 }
             }
 
-            return { 
-                tickets, 
-                orderId, 
+            return {
+                tickets,
+                orderId,
                 totalAmount: finalTotal,
                 eventTitle: event.title,
                 eventDate: event.eventDate,
@@ -299,9 +299,84 @@ router.post('/validate', requireAuth, requireRole(['ADMIN', 'ORGANIZER']), requi
     }
 
     try {
+        const rawPayload = qrPayload.trim();
+
+        // --- 1. SMART ORDER ID DETECTION ---
+        let targetOrderId = null;
+
+        // Find anything starting with ORD- followed by letters/numbers/dashes
+        const idMatch = rawPayload.match(/ORD-[A-Z0-9-]+/i);
+        if (idMatch) {
+            targetOrderId = idMatch[0].toUpperCase();
+        }
+
+        if (targetOrderId) {
+            // Find all tickets associated with this Order (Case-insensitive check)
+            let tickets = await prisma.ticket.findMany({
+                where: {
+                    purchaseOrderId: {
+                        contains: targetOrderId
+                    }
+                },
+                include: { event: true }
+            });
+
+            if (tickets.length > 50) {
+                tickets = tickets.filter(t => t.purchaseOrderId === targetOrderId);
+            }
+
+            if (tickets.length === 0) {
+                return res.status(404).json({ error: 'Order not found or contains no valid tickets.' });
+            }
+
+            // Permission Check
+            if (req.user.role === 'ORGANIZER' && tickets[0].event.organizerId !== req.user.id) {
+                return res.status(403).json({ error: 'Access denied: You do not own this event.' });
+            }
+
+            const unusedTickets = tickets.filter(t => t.status === 'UNUSED');
+
+            if (unusedTickets.length === 0) {
+                return res.status(400).json({
+                    error: 'All tickets in this order have already been used.',
+                    ticket: {
+                        id: targetOrderId,
+                        buyerName: tickets[0].buyerName,
+                        eventTitle: tickets[0].event.title,
+                        scannedAt: tickets[0].scannedAt
+                    }
+                });
+            }
+
+            // Admit all unused tickets in this group
+            const now = new Date();
+            await prisma.ticket.updateMany({
+                where: {
+                    purchaseOrderId: targetOrderId,
+                    status: 'UNUSED'
+                },
+                data: {
+                    status: 'USED',
+                    scannedAt: now
+                }
+            });
+
+            return res.json({
+                status: 'valid',
+                message: `Order Verified! Admitted ${unusedTickets.length} guest${unusedTickets.length > 1 ? 's' : ''}.`,
+                ticket: {
+                    id: targetOrderId,
+                    buyerName: `${tickets[0].buyerName}${unusedTickets.length > 1 ? ` (+ ${unusedTickets.length - 1} guests)` : ''}`,
+                    buyerEmail: tickets[0].buyerEmail,
+                    eventTitle: tickets[0].event.title
+                }
+            });
+        }
+
+        // --- 2. TRADITIONAL QR TOKEN LOOKUP ---
         // Try direct lookup first
         let ticket = await prisma.ticket.findUnique({
-            where: { qrPayload },
+            where: { qrPayload: rawPayload },
             include: { event: true }
         });
 

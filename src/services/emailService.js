@@ -34,10 +34,11 @@ async function getBrowser() {
             if (browserInstance) {
                 await browserInstance.close().catch(() => { });
             }
-            browserInstance = await puppeteer.launch({
+            console.log('[BROWSER] Launching singleton browser instance...');
+            browserInstance = await withTimeout(puppeteer.launch({
                 headless: 'new',
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-            });
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--font-render-hinting=none']
+            }), 15000, 'BROWSER_LAUNCH');
             console.log('[BROWSER] Singleton browser instance launched.');
 
             browserInstance.on('disconnected', () => {
@@ -108,10 +109,7 @@ async function generateQRCode(payload, orderId = 'N/A') {
     }
 }
 
-/**
- * Generate a minimalist PDF ticket
- */
-async function generateTicketPDF(eventData, attendeeData, orderData, qrCodes) {
+async function generateTicketPDF(eventData, attendeeData, orderData, tickets) {
     let page = null;
     try {
         const browser = await getBrowser();
@@ -128,50 +126,59 @@ async function generateTicketPDF(eventData, attendeeData, orderData, qrCodes) {
             ? `${currency} ${orderData.amount.toFixed(2)}`
             : `${currency} ${orderData.amount || '0.00'}`;
 
-        const ticketsHtml = qrCodes.map((qr, index) => `
-            <section class="sheet" style="${index < qrCodes.length - 1 ? 'page-break-after: always;' : ''}">
+        const ticketsHtml = (tickets || []).map((ticket, index) => {
+            const qr = ticket.qrDataUrl || (typeof ticket === 'string' ? ticket : '');
+            const tierName = (ticket.ticketrelease?.name || 'General Admission').toUpperCase();
+            
+            return `
+            <section class="sheet" style="${index < tickets.length - 1 ? 'page-break-after: always;' : ''}">
                 <div class="ticket-shell">
                     <header class="hero">
-                        <p class="eyebrow">Invoice Manifest</p>
-                        <h1>${safeTitle}</h1>
+                        <p class="eyebrow">Digital Admission Pass</p>
+                        <h1 style="color: #FFFFFF; font-weight: 800;">${safeTitle}</h1>
                         <p class="hero-meta">${safeDate}</p>
                         <p class="hero-meta">${safeLocation}</p>
                     </header>
+                    
+                    <div style="background: #4f46e5; display: inline-block; padding: 6px 14px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; color: #fff;">
+                        ${tierName}
+                    </div>
 
-                    <div class="row">
-                        <div class="cell">
-                            <span class="label">Order ID</span>
-                            <strong>${orderData.id}</strong>
+                    <div style="display: flex; gap: 14px; margin-bottom: 14px;">
+                        <div style="flex: 2; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px; border: 1px solid rgba(139, 150, 255, 0.3);">
+                            <span style="display: block; text-transform: uppercase; letter-spacing: 1.6px; font-size: 10px; color: rgba(255,255,255,0.7); margin-bottom: 6px;">Order Reference</span>
+                            <strong style="font-family: monospace; color: #8b96ff; font-size: 16px;">${orderData.id}</strong>
                         </div>
-                        <div class="cell">
-                            <span class="label">Pass</span>
-                            <strong>${index + 1} of ${qrCodes.length}</strong>
+                        <div style="flex: 1; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px;">
+                            <span style="display: block; text-transform: uppercase; letter-spacing: 1.6px; font-size: 10px; color: rgba(255,255,255,0.7); margin-bottom: 6px;">Pass</span>
+                            <strong>${index + 1} of ${tickets.length}</strong>
                         </div>
                     </div>
 
-                    <div class="row">
-                        <div class="cell">
-                            <span class="label">Attendee</span>
+                    <div style="display: flex; gap: 14px;">
+                        <div style="flex: 1; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px;">
+                            <span style="display: block; text-transform: uppercase; letter-spacing: 1.6px; font-size: 10px; color: rgba(255,255,255,0.7); margin-bottom: 6px;">Attendee</span>
                             <strong>${attendeeData.name}</strong>
-                            <p class="muted">${safeEmail}</p>
+                            <p style="margin: 6px 0 0; color: rgba(255,255,255,0.7); font-size: 12px;">${safeEmail}</p>
                         </div>
-                        <div class="cell align-right">
-                            <span class="label">Final Total</span>
-                            <strong class="total">${orderAmount}</strong>
+                        <div style="flex: 1; background: rgba(255,255,255,0.06); border-radius: 14px; padding: 12px; text-align: right;">
+                            <span style="display: block; text-transform: uppercase; letter-spacing: 1.6px; font-size: 10px; color: rgba(255,255,255,0.7); margin-bottom: 6px;">Total Paid</span>
+                            <strong style="font-size: 24px; color: #8b96ff;">${orderAmount}</strong>
                         </div>
                     </div>
 
-                    <div class="qr-wrap">
-                        <img class="qr-image" src="${qr}" alt="Ticket QR ${index + 1}" />
-                        <p class="muted">Scan this QR at event entry gate</p>
+                    <div style="margin-top: 18px; text-align: center; background: rgba(255,255,255,0.04); border-radius: 18px; padding: 24px;">
+                        <img src="${qr}" style="width: 220px; height: 220px; border-radius: 12px; background: #fff; padding: 12px;" />
+                        <p style="margin: 12px 0 0; color: rgba(255,255,255,0.7); font-size: 12px;">Scan this QR for entry</p>
                     </div>
 
-                    <footer class="footer">
-                        Powered by EventHubix • This PDF is system-generated and valid for admission.
+                    <footer style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 10px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.5);">
+                        Powered by EventHubix • Valid for one-time admission
                     </footer>
                 </div>
             </section>
-        `).join('');
+            `;
+        }).join('');
 
         const htmlContent = `
             <!DOCTYPE html>
@@ -190,6 +197,9 @@ async function generateTicketPDF(eventData, attendeeData, orderData, qrCodes) {
                         padding: 28px;
                         border: 1px solid rgba(255,255,255,0.12);
                     }
+                    .tier-badge { background: #4f46e5; display: inline-block; padding: 6px 14px; border-radius: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; color: #fff; }
+                    .bg-highlight { background: rgba(139, 150, 255, 0.15) !important; border: 1px solid rgba(139, 150, 255, 0.3) !important; }
+                    .order-id-txt { font-family: monospace; color: #8b96ff; }
                     .hero { border-bottom: 1px solid rgba(255,255,255,0.15); padding-bottom: 16px; margin-bottom: 16px; }
                     .eyebrow { margin: 0 0 8px; text-transform: uppercase; letter-spacing: 2px; font-size: 10px; color: #8b96ff; font-weight: 700; }
                     h1 { margin: 0 0 6px; font-size: 38px; line-height: 1.1; }
@@ -251,45 +261,55 @@ async function generateTicketPDFWithPdfKit(eventData, attendeeData, orderData, q
             qrCodes.forEach((qr, index) => {
                 if (index > 0) doc.addPage();
 
-                doc.rect(30, 30, doc.page.width - 60, doc.page.height - 60)
-                    .lineWidth(1)
+                // Draw Background
+                doc.rect(0, 0, doc.page.width, doc.page.height).fill('#F8FAFC');
+
+                // Ticket Card
+                doc.roundedRect(40, 40, doc.page.width - 80, doc.page.height - 80, 24)
+                    .fill('#FFFFFF')
                     .strokeColor('#E2E8F0')
+                    .lineWidth(1)
                     .stroke();
 
-                doc.fontSize(10).fillColor('#6366F1').text('Invoice Manifest', 50, 55, { uppercase: true });
-                doc.fontSize(24).fillColor('#0F172A').text(safeTitle, 50, 72, { width: 500 });
-                doc.fontSize(11).fillColor('#64748B').text(safeDate, 50, 108);
-                doc.fontSize(11).fillColor('#64748B').text(safeLocation, 50, 124);
+                // Header
+                doc.fontSize(10).fillColor('#6366F1').text('Official Admission Pass', 65, 70, { characterSpacing: 1 });
+                doc.fontSize(32).fillColor('#0F172A').text(safeTitle, 65, 90, { width: 450, font: 'Helvetica-Bold' });
+                doc.fontSize(12).fillColor('#475569').text(`${safeDate} • ${safeLocation}`, 65, 135);
 
-                doc.fontSize(10).fillColor('#94A3B8').text('Order ID', 50, 170);
-                doc.fontSize(12).fillColor('#0F172A').text(orderData.id || 'N/A', 50, 184);
-                doc.fontSize(10).fillColor('#94A3B8').text('Pass', 370, 170);
-                doc.fontSize(12).fillColor('#0F172A').text(`${index + 1} of ${qrCodes.length}`, 370, 184);
+                // Information Section
+                doc.roundedRect(65, 175, doc.page.width - 130, 120, 16).fill('#F1F5F9');
+                
+                // Labels inside gray box
+                doc.fontSize(9).fillColor('#94A3B8').text('TICKET HOLDER', 85, 195);
+                doc.fontSize(15).fillColor('#1E293B').text(attendeeData.name || 'Guest', 85, 210, { font: 'Helvetica-Bold' });
+                doc.fontSize(11).fillColor('#64748B').text(safeEmail, 85, 230);
 
-                doc.fontSize(10).fillColor('#94A3B8').text('Attendee', 50, 220);
-                doc.fontSize(12).fillColor('#0F172A').text(attendeeData.name || 'Guest', 50, 234);
-                doc.fontSize(11).fillColor('#64748B').text(safeEmail, 50, 250);
+                doc.fontSize(9).fillColor('#94A3B8').text('TICKET TYPE', 350, 195);
+                const tierName = (ticketsWithQr[index]?.ticketrelease?.name || 'General Admission').toUpperCase();
+                doc.fontSize(14).fillColor('#4F46E5').text(tierName, 350, 210, { font: 'Helvetica-Bold' });
 
-                doc.fontSize(10).fillColor('#94A3B8').text('Final Total', 370, 220);
-                doc.fontSize(18).fillColor('#4F46E5').text(orderAmount, 370, 236);
+                // Footer Area
+                doc.fontSize(9).fillColor('#94A3B8').text('ORDER REFERENCE', 65, 320);
+                doc.fontSize(12).fillColor('#1E293B').text(orderData.id || 'N/A', 65, 335, { font: 'Helvetica' });
 
+                doc.fontSize(9).fillColor('#94A3B8').text('ENTRY PASS', 350, 320);
+                doc.fontSize(12).fillColor('#1E293B').text(`${index + 1} of ${qrCodes.length}`, 350, 335, { font: 'Helvetica' });
+
+                // Big QR Section
+                doc.roundedRect(180, 420, 240, 260, 20).fill('#FFFFFF').strokeColor('#F1F5F9').stroke();
+                
                 try {
-                    const qrBuffer = Buffer.from(String(qr).split(',')[1] || '', 'base64');
+                    const qrBuffer = Buffer.from(String(qr.qrDataUrl || qr).split(',')[1] || '', 'base64');
                     if (qrBuffer.length > 0) {
-                        doc.image(qrBuffer, 210, 320, { fit: [180, 180], align: 'center', valign: 'center' });
-                        doc.fontSize(10).fillColor('#64748B').text('Scan this QR at event entry gate', 185, 512);
+                        doc.image(qrBuffer, 210, 450, { width: 180, height: 180 });
+                        doc.fontSize(10).fillColor('#94A3B8').text('SCAN TO CHECK-IN', 180, 645, { width: 240, align: 'center', characterSpacing: 1.5 });
                     }
-                } catch (imageErr) {
-                    doc.fontSize(10).fillColor('#EF4444').text(`QR rendering failed for pass ${index + 1}`, 50, 360);
-                    console.error(`[PDFKIT_QR_ERROR] orderId=${orderData.id} pass=${index + 1} error=${imageErr.message}`);
+                } catch (err) {
+                    console.error('[PDF_QR_ERR]', err.message);
                 }
 
-                doc.fontSize(9)
-                    .fillColor('#94A3B8')
-                    .text('Powered by EventHubix • This PDF is system-generated and valid for admission.', 50, 760, {
-                        width: 500,
-                        align: 'center'
-                    });
+                // Final Brand Footer
+                doc.fontSize(10).fillColor('#CBD5E1').text('Powered by EventHubix Platform', 0, 780, { width: doc.page.width, align: 'center' });
             });
 
             doc.end();
@@ -383,7 +403,7 @@ function getCTAButton(text, url) {
 /**
  * Template: Ticket Confirmation (Buyer)
  */
-function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, location, orderId, amount, ticketsCount, qrCodes, hasPdfAttachment = false, downloadToken = '' }) {
+function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, location, orderId, amount, ticketsCount, tickets, hasPdfAttachment = false, downloadToken = '' }) {
     const ticketUrl = orderId
         ? `${FRONTEND_URL}/order/${orderId}/tickets`
         : `${FRONTEND_URL}/order-tickets`;
@@ -392,54 +412,55 @@ function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, lo
         ? eventDate.toLocaleString('en-AU', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
         : (eventDate || 'Coming Soon');
 
-    const qrSections = (qrCodes || []).map((_, index) => `
-        <div style="display: inline-block; width: 220px; vertical-align: top; margin: 15px; padding: 25px; background-color: #FFFFFF; border: 1.5px solid #F1F5F9; border-radius: 20px; text-align: center;">
-            <img src="cid:ticket_qr_${index}" width="160" height="160" style="display: block; margin: 0 auto; border-radius: 12px; border: 1px solid #F1F5F9; padding: 8px; background-color: white;" alt="Ticket QR Code ${index + 1}" />
-            <p style="margin: 15px 0 0; color: #64748B; font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.1em;">Pass ${index + 1} of ${ticketsCount}</p>
+    const qrSections = (tickets || []).map((ticket, index) => `
+        <div style="display: inline-block; width: 240px; vertical-align: top; margin: 15px; padding: 0; background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 24px; text-align: center; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+            <div style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 12px; color: white;">
+                <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.11em; font-family: sans-serif;">${ticket.ticketrelease?.name || 'Admission Pass'}</span>
+            </div>
+            <div style="padding: 25px;">
+                <div style="background: white; border-radius: 16px; border: 1px solid #F1F5F9; padding: 10px; display: inline-block;">
+                    <img src="cid:ticket_qr_${index}" width="160" height="160" style="display: block;" alt="Ticket QR Code ${index + 1}" />
+                </div>
+                <p style="margin: 15px 0 0; color: #94A3B8; font-size: 10px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em; font-family: sans-serif;">Ticket ${index + 1} of ${ticketsCount}</p>
+                <div style="margin-top: 5px; color: #1E293B; font-size: 12px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 0.1em;">${orderId.split('-').pop()}</div>
+            </div>
         </div>
     `).join('');
 
     const downloadUrl = `${BACKEND_BASE_URL}/api/public/orders/${orderId}/tickets/download`;
 
     const content = `
-        <div style="text-align: center; margin-bottom: 35px;">
-            <div style="display: inline-block; padding: 12px 24px; background-color: #F0F9FF; border-radius: 100px; margin-bottom: 20px;">
-                <span style="color: #0284C7; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em;">Booking Confirmed</span>
+        <div style="text-align: center; margin-bottom: 40px;">
+            <div style="display: inline-block; padding: 8px 16px; background-color: #EEF2FF; border-radius: 100px; margin-bottom: 20px;">
+                <span style="color: #4F46E5; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">✓ Order Confirmed</span>
             </div>
-            <h2 style="margin: 0; color: #0F172A; font-size: 32px; font-weight: 800; letter-spacing: -1px; line-height: 1.1;">You're going to <br/><span style="color: #4F46E5;">${eventTitle}</span></h2>
-            <p style="margin: 15px 0 0; color: #64748B; font-size: 17px; line-height: 1.6;">Hi ${attendeeName}, we've secured your spots! Your digital passes are ready below.</p>
+            <h1 style="margin: 0; color: #1E293B; font-size: 32px; font-weight: 950; letter-spacing: -0.02em; line-height: 1.1;">You're going to <br/><span style="color: #1E293B;">${eventTitle}</span></h1>
+            <p style="margin: 15px 0 0; color: #64748B; font-size: 16px; line-height: 1.6;">Hi ${attendeeName}, get ready! Your digital passes for <strong>${eventTitle}</strong> are secured and ready for scanning.</p>
         </div>
         
-        <div style="background-color: #FFFFFF; border: 1.5px solid #F1F5F9; border-radius: 28px; padding: 35px; margin-bottom: 35px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);">
+        <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 32px; padding: 40px; margin-bottom: 40px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.01);">
             <table border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
-                    <td style="padding-bottom: 25px; border-bottom: 1.5px dashed #F1F5F9;">
-                        <p style="margin: 0 0 5px; color: #94A3B8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;">Event Details</p>
-                        <p style="margin: 0; font-size: 18px; color: #1E293B; font-weight: 700; line-height: 1.4;">${eventTitle}</p>
-                        <p style="margin: 8px 0 0; font-size: 15px; color: #64748B;">📅 ${formattedDate}</p>
-                        <p style="margin: 4px 0 0; font-size: 15px; color: #64748B;">📍 ${location || 'Venue TBD'}</p>
+                    <td style="padding-bottom: 30px; border-bottom: 1px solid #F1F5F9;">
+                        <p style="margin: 0 0 8px; color: #94A3B8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; font-family: sans-serif;">Event Information</p>
+                        <p style="margin: 0; font-size: 20px; color: #1E293B; font-weight: 800; line-height: 1.3;">${eventTitle}</p>
+                        <div style="margin-top: 12px;">
+                            <span style="display: inline-block; margin-right: 20px; font-size: 14px; color: #475569;">📅 ${formattedDate}</span>
+                            <span style="display: inline-block; font-size: 14px; color: #475569;">📍 ${location || 'Venue TBD'}</span>
+                        </div>
                     </td>
                 </tr>
                 <tr>
-                    <td style="padding-top: 25px;">
+                    <td style="padding-top: 30px; border-bottom: 1px dashed #F1F5F9; padding-bottom: 30px;">
                         <table border="0" cellpadding="0" cellspacing="0" width="100%">
                             <tr>
-                                <td style="width: 50%; vertical-align: top; padding-right: 15px;">
-                                    <p style="margin: 0 0 4px; color: #94A3B8; font-size: 10px; font-weight: 800; text-transform: uppercase;">Order ID</p>
-                                    <p style="margin: 0; font-size: 14px; color: #1E293B; font-weight: 700; font-family: 'Courier New', monospace;">${orderId}</p>
+                                <td style="width: 50%; vertical-align: top;">
+                                    <p style="margin: 0 0 6px; color: #94A3B8; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">Order Reference</p>
+                                    <p style="margin: 0; font-size: 15px; color: #1E293B; font-weight: 700; font-family: 'Courier New', monospace;">${orderId}</p>
                                 </td>
                                 <td style="width: 50%; vertical-align: top; text-align: right;">
-                                    <p style="margin: 0 0 4px; color: #94A3B8; font-size: 10px; font-weight: 800; text-transform: uppercase;">Tickets</p>
-                                    <p style="margin: 0; font-size: 14px; color: #1E293B; font-weight: 700;">${ticketsCount} Admit(s)</p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td colspan="2" style="padding-top: 20px;">
-                                    <div style="background-color: #FAFAFB; padding: 15px 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="font-size: 13px; color: #475569; font-weight: 600;">Paid Total</span>
-                                        <span style="font-size: 20px; color: #4F46E5; font-weight: 800; float: right;">${amount}</span>
-                                        <div style="clear: both;"></div>
-                                    </div>
+                                    <p style="margin: 0 0 6px; color: #94A3B8; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">Total Paid</p>
+                                    <p style="margin: 0; font-size: 24px; color: #4F46E5; font-weight: 900;">${amount}</p>
                                 </td>
                             </tr>
                         </table>
@@ -448,25 +469,21 @@ function getTicketConfirmationTemplate({ attendeeName, eventTitle, eventDate, lo
             </table>
         </div>
 
-        ${qrCodes && qrCodes.length > 0 ? `
         <div style="text-align: center; padding: 20px; background-color: #F8FAFC; border-radius: 28px; margin: 35px 0; border: 2px dashed #E2E8F0;">
             ${qrSections}
             <p style="margin: 10px 0 0; color: #94A3B8; font-size: 13px; font-weight: 500;">
-                ${hasPdfAttachment
-                ? 'A consolidated PDF with all tickets is attached to this email.'
-                : 'PDF generation is in progress. You can always download all tickets using the button below.'}
+                A consolidated PDF with all tickets is attached to this email. <br/>You can also use the <strong>Order ID: ${orderId}</strong> for manual check-in.
             </p>
         </div>
-        ` : ''}
 
         ${getCTAButton('View My Tickets', ticketUrl)}
         ${getCTAButton('Download Ticket PDF', `${downloadUrl}?token=${downloadToken}`)}
         
         <p style="text-align: center; color: #94A3B8; font-size: 13px; margin-top: 20px;">
-            Need a refund? Check out our <a href="${FRONTEND_URL}/terms" style="color: #4F46E5; text-decoration: none;">refund policy</a> or reply to this email.
+            If you have any questions, simply reply to this email or contact our support team.
         </p>
     `;
-    return getEmailLayout(content, `You're going to ${eventTitle}! Checkout your tickets.`);
+    return getEmailLayout(content, `Your Tickets for ${eventTitle} - ${orderId}`);
 }
 
 /**
@@ -644,66 +661,54 @@ async function sendEmailRaw(msg, logType = 'unknown', orderId = 'N/A') {
  * Send ticket confirmation to the attendee.
  */
 async function sendTicketConfirmation(attendeeData, orderData, tickets) {
+    console.log(`[DEBUG_EMAIL] sendTicketConfirmation start for order: ${orderData.id}`);
+    let ticketsWithQr = [];
     let qrCodes = [];
     let pdfBuffer = null;
 
     try {
-        // Generate QR codes for ALL tickets in parallel
-        qrCodes = await Promise.all(
-            tickets.map(t => generateQRCode(t.qrPayload, orderData.id))
+        // Generate QR codes for ALL tickets in parallel and store in a combined object
+        ticketsWithQr = await Promise.all(
+            tickets.map(async t => ({
+                ...t,
+                qrDataUrl: await generateQRCode(t.qrPayload, orderData.id)
+            }))
         );
 
-        // Filter out any failed generations (nulls)
-        const validQrs = qrCodes.filter(q => q !== null);
-
-        if (validQrs.length > 0) {
-            // Pass all valid QR codes to generate a consolidated PDF
-            pdfBuffer = await generateTicketPDF({ title: orderData.eventTitle }, attendeeData, orderData, validQrs);
-        }
-    } catch (err) {
-        console.error(`[CONFIRMATION_ERROR] orderId=${orderData.id} error=${err.message}`);
-    }
-
-    // Fallback PDF if styled renderer fails for any reason.
-    if (!pdfBuffer) {
-        try {
-            const browser = await getBrowser();
-            const page = await browser.newPage();
-            const fallbackHtml = `
-                <html>
-                <body style="font-family: Arial, sans-serif; padding: 24px;">
-                    <h1 style="margin:0 0 8px;">${orderData.eventTitle}</h1>
-                    <p style="margin:0 0 12px;">Order: ${orderData.id}</p>
-                    <p style="margin:0 0 12px;">Attendee: ${attendeeData.name} (${attendeeData.email})</p>
-                    ${(qrCodes || []).map((qr, idx) => `
-                        <div style="margin: 18px 0; page-break-inside: avoid;">
-                            <p style="font-size:12px; color:#666;">Ticket ${idx + 1} of ${(qrCodes || []).length}</p>
-                            <img src="${qr}" style="width:180px;height:180px;border:1px solid #ddd;padding:6px;" />
-                        </div>
-                    `).join('')}
-                </body>
-                </html>
-            `;
-            await withTimeout(page.setContent(fallbackHtml, { waitUntil: 'load' }), 8000, 'PDF_FALLBACK_CONTENT_SET');
-            pdfBuffer = await withTimeout(page.pdf({ format: 'A4', printBackground: true }), 10000, 'PDF_FALLBACK_GENERATION');
-            await page.close().catch(() => { });
-            console.log(`[PDF_FALLBACK_SUCCESS] orderId=${orderData.id}`);
-        } catch (fallbackError) {
-            console.error(`[PDF_FALLBACK_ERROR] orderId=${orderData.id} error=${fallbackError.message}`);
-        }
-    }
-
-    // Browserless fallback: always try PDFKit before giving up.
-    if (!pdfBuffer) {
+        // FAST FALLBACK: Use PDFKit primarily for speed and reliability in production
+        // It's much less likely to hang the server than Puppeteer.
         pdfBuffer = await generateTicketPDFWithPdfKit(
             { title: orderData.eventTitle, eventDate: orderData.eventDate, location: orderData.location },
             attendeeData,
             orderData,
-            (qrCodes || []).filter(Boolean)
-        );
-        if (pdfBuffer) {
-            console.log(`[PDFKIT_FALLBACK_SUCCESS] orderId=${orderData.id} tickets=${tickets.length}`);
+            ticketsWithQr.filter(t => t.qrDataUrl)
+        ).catch(e => {
+            console.error('[PDF_PRIMARY_ERROR] Fallback to legacy failed:', e.message);
+            return null;
+        });
+
+        // ONLY if PDFKit fails, we give Puppeteer ONE chance with a strict timeout
+        if (!pdfBuffer) {
+             const qrCodes = ticketsWithQr.map(t => t.qrDataUrl).filter(q => q !== null);
+             if (qrCodes.length > 0) {
+                 pdfBuffer = await withTimeout(
+                    generateTicketPDF(
+                        { 
+                            title: orderData.eventTitle, 
+                            eventDate: orderData.eventDate, 
+                            location: orderData.location 
+                        }, 
+                        attendeeData, 
+                        orderData, 
+                        ticketsWithQr
+                    ),
+                    12000,
+                    'PUPPETEER_SECONDARY'
+                 ).catch(() => null);
+             }
         }
+    } catch (err) {
+        console.error(`[CONFIRMATION_ERROR] orderId=${orderData.id} error=${err.message}`);
     }
 
     const hasPdfAttachment = !!pdfBuffer;
@@ -717,7 +722,7 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
         orderId: orderData.id,
         amount: orderData.amount,
         ticketsCount: tickets.length,
-        qrCodes: qrCodes,
+        tickets: ticketsWithQr,
         hasPdfAttachment,
         downloadToken
     });
@@ -725,9 +730,9 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
     let attachments = [];
 
     // Add all QR codes as inline attachments
-    qrCodes.forEach((qr, index) => {
-        if (qr) {
-            const base64Data = qr.split(',')[1];
+    ticketsWithQr.forEach((t, index) => {
+        if (t.qrDataUrl) {
+            const base64Data = t.qrDataUrl.split(',')[1];
             attachments.push({
                 content: base64Data,
                 filename: `qr-${index}.png`,
@@ -838,6 +843,7 @@ async function sendNewsletterWelcome(email) {
  * Orchestrator for purchase-related emails (fire-and-forget).
  */
 async function processPurchaseEmails({ attendeeEmail, attendeeName, orderId, totalAmount, eventTitle, eventDate, location, organizerEmail, tickets }) {
+    console.log(`[DEBUG_EMAIL] processPurchaseEmails start for order: ${orderId}, tickets: ${tickets?.length}`);
     try {
         const [attendeeResult, organizerResult] = await Promise.allSettled([
             sendTicketConfirmation(

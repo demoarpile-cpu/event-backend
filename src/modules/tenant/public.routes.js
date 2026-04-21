@@ -366,8 +366,8 @@ router.get('/orders/:orderId/tickets/download', async (req, res) => {
 
         const tickets = await prisma.ticket.findMany({
             where: { purchaseOrderId: order.id },
-            select: {
-                qrPayload: true
+            include: {
+                ticketrelease: true
             },
             orderBy: { id: 'asc' }
         });
@@ -395,28 +395,40 @@ router.get('/orders/:orderId/tickets/download', async (req, res) => {
             const currency = (order.currency || 'AUD').toUpperCase();
             const orderAmount = `${currency} ${(Number(order.amount) || 0).toFixed(2)}`;
 
-            qrCodes.forEach((qr, index) => {
+            tickets.forEach((ticket, index) => {
+                const qr = qrCodes[index];
+                const tierName = ticket.ticketrelease?.name || 'Admission Pass';
+                
                 if (index > 0) doc.addPage();
                 doc.rect(30, 30, doc.page.width - 60, doc.page.height - 60).lineWidth(1).strokeColor('#E2E8F0').stroke();
-                doc.fontSize(10).fillColor('#6366F1').text('Invoice Manifest', 50, 55, { uppercase: true });
-                doc.fontSize(24).fillColor('#0F172A').text(safeTitle, 50, 72, { width: 500 });
-                doc.fontSize(11).fillColor('#64748B').text(safeDate, 50, 108);
-                doc.fontSize(11).fillColor('#64748B').text(safeLocation, 50, 124);
-                doc.fontSize(10).fillColor('#94A3B8').text('Order ID', 50, 170);
-                doc.fontSize(12).fillColor('#0F172A').text(order.id, 50, 184);
-                doc.fontSize(10).fillColor('#94A3B8').text('Pass', 370, 170);
-                doc.fontSize(12).fillColor('#0F172A').text(`${index + 1} of ${qrCodes.length}`, 370, 184);
-                doc.fontSize(10).fillColor('#94A3B8').text('Attendee', 50, 220);
-                doc.fontSize(12).fillColor('#0F172A').text(order.customerName || 'Guest', 50, 234);
-                doc.fontSize(11).fillColor('#64748B').text(safeEmail, 50, 250);
-                doc.fontSize(10).fillColor('#94A3B8').text('Final Total', 370, 220);
-                doc.fontSize(18).fillColor('#4F46E5').text(orderAmount, 370, 236);
+                
+                doc.fontSize(10).fillColor('#6366F1').text('Digital Admission Pass', 50, 55, { uppercase: true });
+                doc.fontSize(22).fillColor('#0F172A').text(safeTitle, 50, 72, { width: 500 });
+                doc.fontSize(11).fillColor('#64748B').text(safeDate, 50, 105);
+                doc.fontSize(11).fillColor('#64748B').text(safeLocation, 50, 120);
+
+                // Tier Badge
+                doc.rect(50, 140, 160, 22).fill('#4F46E5');
+                doc.fontSize(9).fillColor('#FFFFFF').text(tierName.toUpperCase(), 60, 146, { width: 140, align: 'center', characterSpacing: 1 });
+
+                doc.fontSize(10).fillColor('#94A3B8').text('Order ID', 50, 180);
+                doc.fontSize(12).fillColor('#4F46E5').text(order.id, 50, 194);
+                doc.fontSize(10).fillColor('#94A3B8').text('Pass', 370, 180);
+                doc.fontSize(12).fillColor('#0F172A').text(`${index + 1} of ${qrCodes.length}`, 370, 194);
+
+                doc.fontSize(10).fillColor('#94A3B8').text('Attendee', 50, 230);
+                doc.fontSize(12).fillColor('#0F172A').text(order.customerName || 'Guest', 50, 244);
+                doc.fontSize(11).fillColor('#64748B').text(safeEmail, 50, 260);
+
+                doc.fontSize(10).fillColor('#94A3B8').text('Final Total', 370, 230);
+                doc.fontSize(18).fillColor('#4F46E5').text(orderAmount, 370, 246);
 
                 const qrBuffer = Buffer.from(String(qr).split(',')[1] || '', 'base64');
                 if (qrBuffer.length > 0) {
                     doc.image(qrBuffer, 210, 320, { fit: [180, 180], align: 'center', valign: 'center' });
-                    doc.fontSize(10).fillColor('#64748B').text('Scan this QR at event entry gate', 185, 512);
+                    doc.fontSize(10).fillColor('#64748B').text('Scan this QR or use Order ID for manual entry', 160, 512, { width: 300, align: 'center' });
                 }
+                
                 doc.fontSize(9).fillColor('#94A3B8').text(
                     'Powered by EventHubix • This PDF is system-generated and valid for admission.',
                     50,
@@ -424,6 +436,7 @@ router.get('/orders/:orderId/tickets/download', async (req, res) => {
                     { width: 500, align: 'center' }
                 );
             });
+;
             doc.end();
         });
 

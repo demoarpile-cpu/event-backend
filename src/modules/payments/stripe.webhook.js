@@ -55,7 +55,7 @@ async function confirmOrderPayment(sessionOrIntent) {
         console.warn('[CONFIRM_PAYMENT_ERROR] Missing orderId in metadata.');
         return;
     }
-    
+
     // 1. Idempotency Guard: Double Check (Status + ProcessedAt)
     const order = await prisma.purchaseorder.findUnique({
         where: { id: orderId }
@@ -69,7 +69,7 @@ async function confirmOrderPayment(sessionOrIntent) {
     // 2. Validate Amount and Currency
     const amountPaidCents = sessionOrIntent.amount_total || sessionOrIntent.amount_received || sessionOrIntent.amount;
     const currency = (sessionOrIntent.currency || 'AUD').toUpperCase();
-    
+
     // NEW: Check against amountCents primarily, fallback to amount * 100 for very old orders
     const expectedCents = order.amountCents > 0 ? order.amountCents : Math.round(order.amount * 100);
 
@@ -77,11 +77,11 @@ async function confirmOrderPayment(sessionOrIntent) {
         console.error(`[PAYMENT_ERROR] Integrity check failed for ${orderId}. 
             Paid: ${amountPaidCents} unit=${currency}
             Expected: ${expectedCents} unit=${order.currency.toUpperCase()}`);
-        
+
         await prisma.purchaseorder.update({
             where: { id: orderId },
-            data: { 
-                paymentStatus: 'FAILED', 
+            data: {
+                paymentStatus: 'FAILED',
                 status: 'PRICE_MISMATCH',
                 statusDetail: `Expect:${expectedCents}${order.currency.toUpperCase()} Paid:${amountPaidCents}${currency}`
             }
@@ -117,7 +117,7 @@ async function confirmOrderPayment(sessionOrIntent) {
 
                 // (Removed AUTO-PROGRESSION logic to allow organizer manual control of multiple active tiers)
             }
-            
+
             // 3.5. Increment Promo Code Usage
             const promoCodeId = sessionOrIntent.metadata?.promoCodeId;
             if (promoCodeId && promoCodeId !== 'null') {
@@ -201,7 +201,7 @@ async function confirmOrderPayment(sessionOrIntent) {
         // If we caught an error in the transaction, it rolled back. 
         // We might want to mark it as TICKET_PENDING only if we are relatively sure payment succeeded but tickets failed.
         // But since we catch at the very top, we re-throw for Stripe to retry.
-        throw txError; 
+        throw txError;
     }
 }
 
@@ -216,7 +216,7 @@ async function handlePaymentFailure(orderId, sessionIdOrId) {
     if (orderId) {
         order = await prisma.purchaseorder.findUnique({ where: { id: orderId } });
     }
-    
+
     // Fallback to sessionId lookup
     if (!order && sessionIdOrId) {
         order = await prisma.purchaseorder.findUnique({
@@ -227,8 +227,8 @@ async function handlePaymentFailure(orderId, sessionIdOrId) {
     if (order && (order.paymentStatus === 'PENDING' || order.paymentStatus === 'PAYMENT_PENDING')) {
         await prisma.purchaseorder.update({
             where: { id: order.id },
-            data: { 
-                paymentStatus: 'FAILED', 
+            data: {
+                paymentStatus: 'FAILED',
                 status: 'FAILED',
                 processedAt: new Date(),
                 statusDetail: 'PAYMENT_FAILED_AT_STRIPE'
