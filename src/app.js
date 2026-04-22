@@ -8,8 +8,8 @@ const app = express();
 // Middlewares
 const normalizedFrontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
 const allowedOrigins = new Set([
-    'http://event.kiaansoftware.com',
-    'https://event.kiaansoftware.com',
+    'https://eventhubix.com',
+    'https://www.eventhubix.com',
     normalizedFrontendUrl
 ].filter(Boolean));
 
@@ -19,9 +19,9 @@ const corsOptions = {
 
         const normalizedOrigin = origin.replace(/\/$/, '');
         const isAllowed = normalizedOrigin.includes('localhost') ||
-                          normalizedOrigin.includes('127.0.0.1') ||
-                          normalizedOrigin.includes('ngrok') ||
-                          allowedOrigins.has(normalizedOrigin);
+            normalizedOrigin.includes('127.0.0.1') ||
+            normalizedOrigin.includes('ngrok') ||
+            allowedOrigins.has(normalizedOrigin);
 
         if (isAllowed) return callback(null, true);
 

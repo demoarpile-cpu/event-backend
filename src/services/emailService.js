@@ -3,6 +3,9 @@ const qrcode = require('qrcode');
 const puppeteer = require('puppeteer');
 const PDFDocument = require('pdfkit');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
 
 // Configure SendGrid — fail explicitly if key is missing
 if (!process.env.SENDGRID_API_KEY) {
@@ -129,7 +132,7 @@ async function generateTicketPDF(eventData, attendeeData, orderData, tickets) {
         const ticketsHtml = (tickets || []).map((ticket, index) => {
             const qr = ticket.qrDataUrl || (typeof ticket === 'string' ? ticket : '');
             const tierName = (ticket.ticketrelease?.name || 'General Admission').toUpperCase();
-            
+
             return `
             <section class="sheet" style="${index < tickets.length - 1 ? 'page-break-after: always;' : ''}">
                 <div class="ticket-shell">
@@ -278,7 +281,7 @@ async function generateTicketPDFWithPdfKit(eventData, attendeeData, orderData, q
 
                 // Information Section
                 doc.roundedRect(65, 175, doc.page.width - 130, 120, 16).fill('#F1F5F9');
-                
+
                 // Labels inside gray box
                 doc.fontSize(9).fillColor('#94A3B8').text('TICKET HOLDER', 85, 195);
                 doc.fontSize(15).fillColor('#1E293B').text(attendeeData.name || 'Guest', 85, 210, { font: 'Helvetica-Bold' });
@@ -297,7 +300,7 @@ async function generateTicketPDFWithPdfKit(eventData, attendeeData, orderData, q
 
                 // Big QR Section
                 doc.roundedRect(180, 420, 240, 260, 20).fill('#FFFFFF').strokeColor('#F1F5F9').stroke();
-                
+
                 try {
                     const qrBuffer = Buffer.from(String(qr.qrDataUrl || qr).split(',')[1] || '', 'base64');
                     if (qrBuffer.length > 0) {
@@ -351,7 +354,7 @@ function getEmailLayout(content, preheader = '') {
                     <!-- Header -->
                     <tr>
                         <td style="padding: 40px 0 35px; text-align: center; background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);">
-                            <h1 style="color: #FFFFFF; margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -1px;">EventHubix</h1>
+                            <img src="cid:logo" alt="EventHubix" style="height: 40px; width: auto; display: inline-block;">
                         </td>
                     </tr>
                     <!-- Body -->
@@ -646,6 +649,28 @@ async function sendEmailRaw(msg, logType = 'unknown', orderId = 'N/A') {
         msg.replyTo = REPLY_TO_EMAIL;
 
         console.log(`[EMAIL_SENDING] type=${logType} to=${msg.to} from=${FROM_EMAIL.email} orderId=${orderId}`);
+
+        // Automatically add logo attachment if not present
+        if (!msg.attachments) msg.attachments = [];
+        const logoExists = msg.attachments.some(a => a.content_id === 'logo');
+        if (!logoExists) {
+            try {
+                const logoPath = path.join(__dirname, '../../public/logo/eventhubix-logo-email.png');
+                if (fs.existsSync(logoPath)) {
+                    const logoBase64 = fs.readFileSync(logoPath).toString('base64');
+                    msg.attachments.push({
+                        content: logoBase64,
+                        filename: 'logo.png',
+                        type: 'image/png',
+                        disposition: 'inline',
+                        content_id: 'logo'
+                    });
+                }
+            } catch (logoErr) {
+                console.error('[EMAIL_LOGO_ERR]', logoErr.message);
+            }
+        }
+
         const response = await sendWithRetry(() => sgMail.send(msg), 3, logType);
         console.log(`[EMAIL_SUCCESS] status=${response[0].statusCode} to=${msg.to} type=${logType} via=sendgrid_api`);
     } catch (error) {
@@ -689,23 +714,23 @@ async function sendTicketConfirmation(attendeeData, orderData, tickets) {
 
         // ONLY if PDFKit fails, we give Puppeteer ONE chance with a strict timeout
         if (!pdfBuffer) {
-             const qrCodes = ticketsWithQr.map(t => t.qrDataUrl).filter(q => q !== null);
-             if (qrCodes.length > 0) {
-                 pdfBuffer = await withTimeout(
+            const qrCodes = ticketsWithQr.map(t => t.qrDataUrl).filter(q => q !== null);
+            if (qrCodes.length > 0) {
+                pdfBuffer = await withTimeout(
                     generateTicketPDF(
-                        { 
-                            title: orderData.eventTitle, 
-                            eventDate: orderData.eventDate, 
-                            location: orderData.location 
-                        }, 
-                        attendeeData, 
-                        orderData, 
+                        {
+                            title: orderData.eventTitle,
+                            eventDate: orderData.eventDate,
+                            location: orderData.location
+                        },
+                        attendeeData,
+                        orderData,
                         ticketsWithQr
                     ),
                     12000,
                     'PUPPETEER_SECONDARY'
-                 ).catch(() => null);
-             }
+                ).catch(() => null);
+            }
         }
     } catch (err) {
         console.error(`[CONFIRMATION_ERROR] orderId=${orderData.id} error=${err.message}`);

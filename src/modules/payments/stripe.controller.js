@@ -100,12 +100,12 @@ const createCheckoutSession = async (req, res) => {
             const fixedFee = settings.platformFeeFixed;
             const buyerPaysFee = event.serviceFeeType === 'BUYER';
 
-            // Platform fee must be calculated from post-promo amount.
+            // Platform fee is calculated from original amount (pre-promo) to keep the fee stable.
             const clampedDiscount = Math.max(0, Math.min(discountValue, subtotal));
             const discountedSubtotal = Math.max(0, subtotal - clampedDiscount);
             const fee = (discountedSubtotal <= 0)
                 ? 0
-                : parseFloat(((discountedSubtotal * effectiveFeeRate) + (fixedFee * qtyInt)).toFixed(2));
+                : parseFloat(((subtotal * effectiveFeeRate) + (fixedFee * qtyInt)).toFixed(2));
             
             // Buyer total should include fee only when fee type is BUYER.
             const finalTotal = Math.max(0, discountedSubtotal + (buyerPaysFee ? fee : 0));
